@@ -1,0 +1,157 @@
+name: Sky local-fork PoC
+
+on:
+  push:
+    branches:
+      - sky-local-fork-poc-run-20260917
+  workflow_dispatch:
+
+jobs:
+  local-fork-poc:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Foundry
+        uses: foundry-rs/foundry-toolchain@v1
+
+      - name: Replay real Sky Dog.bark on a local fork only
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          DOG="0x135954d155898D42C90D2a57824C690e0c7BEf1B"
+          VAT="0x35D1b3F3D7966A1DFe207aa4514C12a259A0492B"
+          LOCAL_RPC="http://127.0.0.1:8545"
+          LOCAL_PK="0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80"
+          KPR="0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266"
+          OUT="sky-local-fork-poc.txt"
+          : > "$OUT"
+
+          pick_rpc() {
+            for rpc in \
+              "https://ethereum-rpc.publicnode.com" \
+              "https://eth.llamarpc.com" \
+              "https://rpc.ankr.com/eth"; do
+              if curl -fsS --max-time 10 -H 'content-type: application/json' \
+                --data '{"jsonrpc":"2.0","id":1,"method":"eth_blockNumber","params":[]}' \
+                "$rpc" | jq -e '.result' >/dev/null 2>&1; then
+                echo "$rpc"
+                return 0
+              fi
+            done
+            return 1
+          }
+
+          UPSTREAM_RPC="$(pick_rpc)" || { echo "NO_READ_ONLY_RPC_AVAILABLE" | tee -a "$OUT"; exit 2; }
+          echo "MODE=LOCAL_FORK_ONLY" | tee -a "$OUT"
+          echo "UPSTREAM_RPC=$UPSTREAM_RPC" | tee -a "$OUT"
+          echo "DOG=$DOG" | tee -a "$OUT"
+          echo "VAT=$VAT" | tee -a "$OUT"
+
+          latest_hex=$(curl -fsS -H 'content-type: application/json' \
+            --data '{"jsonrpc":"2.0","id":1,"method":"eth_blockNumber","params":[]}' \
+            "$UPSTREAM_RPC" | jq -r '.result')
+          latest=$((16#${latest_hex#0x}))
+          echo "LATEST_BLOCK=$latest" | tee -a "$OUT"
+
+          topic0=$(cast keccak 'Bark(bytes32,address,uint256,uint256,uint256,address,uint256)')
+          echo "BARK_TOPIC0=$topic0" | tee -a "$OUT"
+
+          found=0
+          step=50000
+          floor=$((latest - 2000000))
+          (( floor < 0 )) && floor=0
+
+          for ((to=latest; to>floor && found==0; to-=step)); do
+            from=$((to-step+1))
+            (( from < floor )) && from=$floor
+            from_hex=$(printf '0x%x' "$from")
+            to_hex=$(printf '0x%x' "$to")
+
+            payload=$(jq -nc \
+              --arg addr "$DOG" \
+              --arg from "$from_hex" \
+              --arg to "$to_hex" \
+              --arg topic "$topic0" \
+              '{jsonrpc:"2.0",id:1,method:"eth_getLogs",params:[{address:$addr,fromBlock:$from,toBlock:$to,topics:[$topic]}]}')
+
+            resp=$(curl -fsS --max-time 30 -H 'content-type: application/json' --data "$payload" "$UPSTREAM_RPC" || true)
+            count=$(jq -r 'if (.result|type)=="array" then (.result|length) else 0 end' <<<"$resp" 2>/dev/null || echo 0)
+            (( count == 0 )) && continue
+
+            for ((idx=count-1; idx>=0; idx--)); do
+              block_hex=$(jq -r ".result[$idx].blockNumber" <<<"$resp")
+              tx_hash=$(jq -r ".result[$idx].transactionHash" <<<"$resp")
+              ilk=$(jq -r ".result[$idx].topics[1]" <<<"$resp")
+              urn_topic=$(jq -r ".result[$idx].topics[2]" <<<"$resp")
+              urn="0x${urn_topic:26}"
+              block=$((16#${block_hex#0x}))
+              (( block == 0 )) && continue
+              fork_block=$((block-1))
+
+              echo "TRY_BARK_EVENT_BLOCK=$block TX=$tx_hash ILK=$ilk URN=$urn FORK_BLOCK=$fork_block" | tee -a "$OUT"
+
+              anvil --fork-url "$UPSTREAM_RPC" --fork-block-number "$fork_block" --port 8545 >anvil.log 2>&1 &
+              anvil_pid=$!
+              ready=0
+              for _ in $(seq 1 30); do
+                if cast block-number --rpc-url "$LOCAL_RPC" >/dev/null 2>&1; then ready=1; break; fi
+                sleep 1
+              done
+              if (( ready == 0 )); then
+                echo "ANVIL_START_FAILED" | tee -a "$OUT"
+                kill "$anvil_pid" 2>/dev/null || true
+                wait "$anvil_pid" 2>/dev/null || true
+                continue
+              fi
+
+              before_urn=$(cast call --rpc-url "$LOCAL_RPC" "$VAT" 'urns(bytes32,address)(uint256,uint256)' "$ilk" "$urn" 2>&1 || true)
+              before_dirt=$(cast call --rpc-url "$LOCAL_RPC" "$DOG" 'Dirt()(uint256)' 2>&1 || true)
+              before_ilk=$(cast call --rpc-url "$LOCAL_RPC" "$DOG" 'ilks(bytes32)(address,uint256,uint256,uint256)' "$ilk" 2>&1 || true)
+
+              echo "BEFORE_URN=$before_urn" | tee -a "$OUT"
+              echo "BEFORE_DOG_DIRT=$before_dirt" | tee -a "$OUT"
+              echo "BEFORE_DOG_ILK=$before_ilk" | tee -a "$OUT"
+
+              set +e
+              send_out=$(cast send --rpc-url "$LOCAL_RPC" --private-key "$LOCAL_PK" \
+                "$DOG" 'bark(bytes32,address,address)' "$ilk" "$urn" "$KPR" --json 2>&1)
+              send_status=$?
+              set -e
+
+              echo "BARK_EXIT_STATUS=$send_status" | tee -a "$OUT"
+              echo "BARK_RESULT=$send_out" | tee -a "$OUT"
+
+              if (( send_status == 0 )); then
+                after_urn=$(cast call --rpc-url "$LOCAL_RPC" "$VAT" 'urns(bytes32,address)(uint256,uint256)' "$ilk" "$urn" 2>&1 || true)
+                after_dirt=$(cast call --rpc-url "$LOCAL_RPC" "$DOG" 'Dirt()(uint256)' 2>&1 || true)
+                after_ilk=$(cast call --rpc-url "$LOCAL_RPC" "$DOG" 'ilks(bytes32)(address,uint256,uint256,uint256)' "$ilk" 2>&1 || true)
+                echo "AFTER_URN=$after_urn" | tee -a "$OUT"
+                echo "AFTER_DOG_DIRT=$after_dirt" | tee -a "$OUT"
+                echo "AFTER_DOG_ILK=$after_ilk" | tee -a "$OUT"
+                echo "LOCAL_FORK_POC_EXECUTED=YES" | tee -a "$OUT"
+                found=1
+              fi
+
+              kill "$anvil_pid" 2>/dev/null || true
+              wait "$anvil_pid" 2>/dev/null || true
+              (( found == 1 )) && break
+            done
+          done
+
+          if (( found == 0 )); then
+            echo "LOCAL_FORK_POC_EXECUTED=NO" | tee -a "$OUT"
+            echo "No historical Bark event in the scanned range replayed successfully at block-1." | tee -a "$OUT"
+            exit 3
+          fi
+
+      - name: Upload PoC execution record
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: sky-local-fork-poc-record
+          path: |
+            sky-local-fork-poc.txt
+            anvil.log
+          if-no-files-found: ignore
