@@ -20,10 +20,6 @@ jobs:
         run: |
           set -euo pipefail
 
-          # HARD SAFETY BOUNDARY:
-          # - upstream RPC is read-only and is used only as Anvil fork source
-          # - every transaction below is sent only to loopback Anvil
-          # - no mainnet/public-testnet send path exists in this workflow
           LOCAL_RPC="http://127.0.0.1:8545"
           CHAINLOG="0xdA0Ab1e0017DEbCd72Be8599041a2aa3bA7e740F"
           PK="0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80"
@@ -34,13 +30,8 @@ jobs:
           : > "$OUT"
 
           pick_rpc() {
-            for rpc in \
-              "https://ethereum-rpc.publicnode.com" \
-              "https://eth.llamarpc.com" \
-              "https://rpc.ankr.com/eth"; do
-              if curl -fsS --max-time 10 -H 'content-type: application/json' \
-                --data '{"jsonrpc":"2.0","id":1,"method":"eth_blockNumber","params":[]}' \
-                "$rpc" | jq -e '.result' >/dev/null 2>&1; then
+            for rpc in "https://ethereum-rpc.publicnode.com" "https://eth.llamarpc.com" "https://rpc.ankr.com/eth"; do
+              if curl -fsS --max-time 10 -H 'content-type: application/json' --data '{"jsonrpc":"2.0","id":1,"method":"eth_blockNumber","params":[]}' "$rpc" | jq -e '.result' >/dev/null 2>&1; then
                 echo "$rpc"
                 return 0
               fi
@@ -55,24 +46,11 @@ jobs:
             cast call --rpc-url "$LOCAL_RPC" "$CHAINLOG" 'getAddress(bytes32)(address)' "$b32" | tr -d '\r' | awk '{print $1}'
           }
 
-          uint_call() {
-            cast call --rpc-url "$LOCAL_RPC" "$1" "$2" "${@:3}" | tr -d '\r' | awk 'NR==1{print $1}'
-          }
-
-          log_call() {
-            local label="$1"; shift
-            echo "[$label]" | tee -a "$OUT"
-            set +e
-            "$@" 2>&1 | tee -a "$OUT"
-            local st=${PIPESTATUS[0]}
-            set -e
-            echo "${label}_STATUS=$st" | tee -a "$OUT"
-            return "$st"
-          }
-
           BREACH=0
+
           expect_revert() {
-            local label="$1"; shift
+            local label="$1"
+            shift
             set +e
             local msg
             msg="$(cast send --rpc-url "$LOCAL_RPC" --private-key "$PK" "$@" --json 2>&1)"
@@ -88,18 +66,12 @@ jobs:
             fi
           }
 
-          UPSTREAM_RPC="$(pick_rpc)" || {
-            echo "INFRA_FAILURE=NO_READ_ONLY_RPC" | tee -a "$OUT"
-            exit 2
-          }
+          UPSTREAM_RPC="$(pick_rpc)" || { echo "INFRA_FAILURE=NO_READ_ONLY_RPC" | tee -a "$OUT"; exit 2; }
 
-          latest_hex="$(curl -fsS -H 'content-type: application/json' \
-            --data '{"jsonrpc":"2.0","id":1,"method":"eth_blockNumber","params":[]}' \
-            "$UPSTREAM_RPC" | jq -r '.result')"
+          latest_hex="$(curl -fsS -H 'content-type: application/json' --data '{"jsonrpc":"2.0","id":1,"method":"eth_blockNumber","params":[]}' "$UPSTREAM_RPC" | jq -r '.result')"
           latest=$((16#${latest_hex#0x}))
 
           echo "MODE=LOCAL_FORK_ONLY" | tee -a "$OUT"
-          echo "UPSTREAM_RPC=$UPSTREAM_RPC" | tee -a "$OUT"
           echo "FORK_BLOCK=$latest" | tee -a "$OUT"
           echo "ATTACKER=$ATTACKER" | tee -a "$OUT"
 
@@ -115,12 +87,9 @@ jobs:
             fi
             sleep 1
           done
-          if (( ready == 0 )); then
-            echo "INFRA_FAILURE=ANVIL_START_FAILED" | tee -a "$OUT"
-            exit 2
-          fi
+          (( ready == 1 )) || { echo "INFRA_FAILURE=ANVIL_START_FAILED" | tee -a "$OUT"; exit 2; }
 
-          # Local-only RPC method proves this endpoint is Anvil, not an upstream node.
+          # This Anvil-only method hard-binds all writes to the loopback fork.
           cast rpc --rpc-url "$LOCAL_RPC" anvil_nodeInfo >/dev/null
           echo "LOCAL_ANVIL_VERIFIED=YES" | tee -a "$OUT"
 
@@ -135,10 +104,7 @@ jobs:
           echo "DOG=$DOG" | tee -a "$OUT"
 
           for x in "$VAT" "$DAI" "$DAI_JOIN" "$DOG"; do
-            if [[ -z "$x" || "$x" == "$ZERO" ]]; then
-              echo "INFRA_FAILURE=CHAINLOG_RESOLUTION" | tee -a "$OUT"
-              exit 2
-            fi
+            [[ -n "$x" && "$x" != "$ZERO" ]] || { echo "INFRA_FAILURE=CHAINLOG_RESOLUTION" | tee -a "$OUT"; exit 2; }
           done
 
           VAT_CODE_SHA="$(cast code --rpc-url "$LOCAL_RPC" "$VAT" | sha256sum | awk '{print $1}')"
@@ -146,15 +112,10 @@ jobs:
           echo "VAT_CODE_SHA256=$VAT_CODE_SHA" | tee -a "$OUT"
           echo "DAI_CODE_SHA256=$DAI_CODE_SHA" | tee -a "$OUT"
 
-          # ----------------------------
-          # Gate A: unprivileged actor must not cross privileged/consent boundaries.
-          # ----------------------------
+          # Gate A: unprivileged actor may not cross privileged or consent boundaries.
           ATTACKER_WARD="$(cast call --rpc-url "$LOCAL_RPC" "$VAT" 'wards(address)(uint256)' "$ATTACKER" | awk '{print $1}')"
           echo "ATTACKER_VAT_WARD=$ATTACKER_WARD" | tee -a "$OUT"
-          if [[ "$ATTACKER_WARD" != "0" ]]; then
-            echo "INFRA_FAILURE=ATTACKER_ALREADY_PRIVILEGED" | tee -a "$OUT"
-            exit 2
-          fi
+          [[ "$ATTACKER_WARD" == "0" ]] || { echo "INFRA_FAILURE=ATTACKER_ALREADY_PRIVILEGED" | tee -a "$OUT"; exit 2; }
 
           ILK_ETH_A="$(cast format-bytes32-string ETH-A)"
 
@@ -162,11 +123,6 @@ jobs:
           BASE_VICE="$(cast call --rpc-url "$LOCAL_RPC" "$VAT" 'vice()(uint256)' | awk '{print $1}')"
           BASE_INT_DAI="$(cast call --rpc-url "$LOCAL_RPC" "$VAT" 'dai(address)(uint256)' "$ATTACKER" | awk '{print $1}')"
           BASE_EXT_DAI="$(cast call --rpc-url "$LOCAL_RPC" "$DAI" 'balanceOf(address)(uint256)' "$ATTACKER" | awk '{print $1}')"
-
-          echo "BASE_DEBT=$BASE_DEBT" | tee -a "$OUT"
-          echo "BASE_VICE=$BASE_VICE" | tee -a "$OUT"
-          echo "BASE_INT_DAI=$BASE_INT_DAI" | tee -a "$OUT"
-          echo "BASE_EXT_DAI=$BASE_EXT_DAI" | tee -a "$OUT"
 
           expect_revert VAT_SUCK "$VAT" 'suck(address,address,uint256)' "$ATTACKER" "$ATTACKER" 1
           expect_revert VAT_SLIP "$VAT" 'slip(bytes32,address,int256)' "$ILK_ETH_A" "$ATTACKER" 1
@@ -186,12 +142,11 @@ jobs:
             echo "NEGATIVE_CONTROL_STATE_CHANGED=NO" | tee -a "$OUT"
           fi
 
-          # ----------------------------
-          # Gate B: bounded economic conservation on a real collateral path.
-          # We try active native-ETH joins and choose the first usable one.
-          # ----------------------------
+          # Gate B: choose an active native-ETH collateral join and probe exact debt/value conservation.
           SELECTED_ILK=""
           SELECTED_JOIN=""
+          SELECTED_NAME=""
+
           for suffix in A B C; do
             key="MCD_JOIN_ETH_${suffix}"
             join="$(resolve "$key" || true)"
@@ -205,20 +160,16 @@ jobs:
             [[ "$live" == "1" ]] || continue
 
             mapfile -t vals < <(cast call --rpc-url "$LOCAL_RPC" "$VAT" 'ilks(bytes32)(uint256,uint256,uint256,uint256,uint256)' "$ilk" | awk '{print $1}')
-            if (( ${#vals[@]} < 5 )); then
-              continue
-            fi
-            art="${vals[0]}"; rate="${vals[1]}"; spot="${vals[2]}"; line="${vals[3]}"; dust="${vals[4]}"
+            (( ${#vals[@]} >= 5 )) || continue
+
+            art="${vals[0]}"
+            rate="${vals[1]}"
+            spot="${vals[2]}"
+            line="${vals[3]}"
             debt_now="$(cast call --rpc-url "$LOCAL_RPC" "$VAT" 'debt()(uint256)' | awk '{print $1}')"
             line_global="$(cast call --rpc-url "$LOCAL_RPC" "$VAT" 'Line()(uint256)' | awk '{print $1}')"
 
-            usable="$(python3 - "$art" "$rate" "$spot" "$line" "$debt_now" "$line_global" <<'PY'
-import sys
-art, rate, spot, line, debt, Line = map(int, sys.argv[1:])
-ok = rate > 0 and spot > 0 and line > art*rate and Line > debt
-print("YES" if ok else "NO")
-PY
-)"
+            usable="$(python3 -c 'import sys; art,rate,spot,line,debt,Line=map(int,sys.argv[1:]); print("YES" if rate>0 and spot>0 and line>art*rate and Line>debt else "NO")' "$art" "$rate" "$spot" "$line" "$debt_now" "$line_global")"
             if [[ "$usable" == "YES" ]]; then
               SELECTED_ILK="$ilk"
               SELECTED_JOIN="$join"
@@ -234,33 +185,21 @@ PY
             echo "ECONOMIC_PATH_JOIN=$SELECTED_JOIN" | tee -a "$OUT"
 
             DEPOSIT="$(cast to-wei 1000 ether)"
-            cast send --rpc-url "$LOCAL_RPC" --private-key "$PK" --value "$DEPOSIT" \
-              "$SELECTED_JOIN" 'join(address)' "$ATTACKER" --json >>"$OUT"
+            cast send --rpc-url "$LOCAL_RPC" --private-key "$PK" --value "$DEPOSIT" "$SELECTED_JOIN" 'join(address)' "$ATTACKER" --json >>"$OUT"
 
             FREE_GEM="$(cast call --rpc-url "$LOCAL_RPC" "$VAT" 'gem(bytes32,address)(uint256)' "$SELECTED_ILK" "$ATTACKER" | awk '{print $1}')"
             mapfile -t vals < <(cast call --rpc-url "$LOCAL_RPC" "$VAT" 'ilks(bytes32)(uint256,uint256,uint256,uint256,uint256)' "$SELECTED_ILK" | awk '{print $1}')
-            ART="${vals[0]}"; RATE="${vals[1]}"; SPOT="${vals[2]}"; ILK_LINE="${vals[3]}"; DUST="${vals[4]}"
+            ART="${vals[0]}"
+            RATE="${vals[1]}"
+            SPOT="${vals[2]}"
+            ILK_LINE="${vals[3]}"
+            DUST="${vals[4]}"
             DEBT0="$(cast call --rpc-url "$LOCAL_RPC" "$VAT" 'debt()(uint256)' | awk '{print $1}')"
             LINE_GLOBAL="$(cast call --rpc-url "$LOCAL_RPC" "$VAT" 'Line()(uint256)' | awk '{print $1}')"
             INT0="$(cast call --rpc-url "$LOCAL_RPC" "$VAT" 'dai(address)(uint256)' "$ATTACKER" | awk '{print $1}')"
             EXT0="$(cast call --rpc-url "$LOCAL_RPC" "$DAI" 'balanceOf(address)(uint256)' "$ATTACKER" | awk '{print $1}')"
 
-            read MAX_DART TARGET_DART MIN_DART < <(python3 - "$FREE_GEM" "$ART" "$RATE" "$SPOT" "$ILK_LINE" "$DUST" "$DEBT0" "$LINE_GLOBAL" <<'PY'
-import sys
-ink, Art, rate, spot, line, dust, debt, Line = map(int, sys.argv[1:])
-safe = (ink * spot) // rate
-ilk_cap = max(0, (line - Art*rate) // rate)
-global_cap = max(0, (Line - debt) // rate)
-mx = min(safe, ilk_cap, global_cap)
-mn = (dust + rate - 1) // rate
-target = mx // 2
-if target < mn:
-    target = mn
-if target > mx:
-    target = 0
-print(mx, target, mn)
-PY
-)
+            read MAX_DART TARGET_DART MIN_DART <<<"$(python3 -c 'import sys; ink,Art,rate,spot,line,dust,debt,Line=map(int,sys.argv[1:]); safe=(ink*spot)//rate; ic=max(0,(line-Art*rate)//rate); gc=max(0,(Line-debt)//rate); mx=min(safe,ic,gc); mn=(dust+rate-1)//rate; t=mx//2; t=mn if t<mn else t; t=0 if t>mx else t; print(mx,t,mn)' "$FREE_GEM" "$ART" "$RATE" "$SPOT" "$ILK_LINE" "$DUST" "$DEBT0" "$LINE_GLOBAL")"
 
             echo "FREE_GEM=$FREE_GEM" | tee -a "$OUT"
             echo "RATE=$RATE" | tee -a "$OUT"
@@ -272,84 +211,38 @@ PY
             if [[ "$TARGET_DART" == "0" ]]; then
               echo "ECONOMIC_PATH=SKIPPED_INSUFFICIENT_CAPACITY" | tee -a "$OUT"
             else
-              OVER_DART="$(python3 - "$MAX_DART" <<'PY'
-import sys
-print(int(sys.argv[1]) + 1)
-PY
-)"
-              expect_revert FROB_OVER_BOUNDARY "$VAT" 'frob(bytes32,address,address,address,int256,int256)' \
-                "$SELECTED_ILK" "$ATTACKER" "$ATTACKER" "$ATTACKER" "$FREE_GEM" "$OVER_DART"
+              OVER_DART="$(python3 -c 'import sys; print(int(sys.argv[1])+1)' "$MAX_DART")"
+              expect_revert FROB_OVER_BOUNDARY "$VAT" 'frob(bytes32,address,address,address,int256,int256)' "$SELECTED_ILK" "$ATTACKER" "$ATTACKER" "$ATTACKER" "$FREE_GEM" "$OVER_DART"
 
-              # After the failed boundary probe, perform one valid owner-authorized draw.
-              cast send --rpc-url "$LOCAL_RPC" --private-key "$PK" "$VAT" \
-                'frob(bytes32,address,address,address,int256,int256)' \
-                "$SELECTED_ILK" "$ATTACKER" "$ATTACKER" "$ATTACKER" "$FREE_GEM" "$TARGET_DART" --json >>"$OUT"
+              cast send --rpc-url "$LOCAL_RPC" --private-key "$PK" "$VAT" 'frob(bytes32,address,address,address,int256,int256)' "$SELECTED_ILK" "$ATTACKER" "$ATTACKER" "$ATTACKER" "$FREE_GEM" "$TARGET_DART" --json >>"$OUT"
 
               INT1="$(cast call --rpc-url "$LOCAL_RPC" "$VAT" 'dai(address)(uint256)' "$ATTACKER" | awk '{print $1}')"
-              EXT1="$(cast call --rpc-url "$LOCAL_RPC" "$DAI" 'balanceOf(address)(uint256)' "$ATTACKER" | awk '{print $1}')"
               DEBT1="$(cast call --rpc-url "$LOCAL_RPC" "$VAT" 'debt()(uint256)' | awk '{print $1}')"
 
-              read EXPECTED_RAD MAX_EXIT EXPECTED_REM < <(python3 - "$RATE" "$TARGET_DART" "$INT0" "$INT1" "$RAY" <<'PY'
-import sys
-rate, dart, int0, int1, ray = map(int, sys.argv[1:])
-expected = rate * dart
-gain = int1 - int0
-if gain != expected:
-    print(expected, 0, -1)
-else:
-    print(expected, gain // ray, gain % ray)
-PY
-)
+              EXPECTED_RAD="$(python3 -c 'import sys; print(int(sys.argv[1])*int(sys.argv[2]))' "$RATE" "$TARGET_DART")"
+              MAX_EXIT="$(python3 -c 'import sys; print((int(sys.argv[2])-int(sys.argv[1]))//int(sys.argv[3]))' "$INT0" "$INT1" "$RAY")"
 
+              DRAW_OK="$(python3 -c 'import sys; d0,d1,i0,i1,e=map(int,sys.argv[1:]); print("YES" if d1-d0==e and i1-i0==e else "NO")' "$DEBT0" "$DEBT1" "$INT0" "$INT1" "$EXPECTED_RAD")"
               echo "EXPECTED_RAD_GAIN=$EXPECTED_RAD" | tee -a "$OUT"
-              echo "MAX_EXIT_WAD=$MAX_EXIT" | tee -a "$OUT"
-
-              python3 - "$DEBT0" "$DEBT1" "$INT0" "$INT1" "$EXPECTED_RAD" <<'PY' | tee -a "$OUT"
-import sys
-debt0, debt1, int0, int1, expected = map(int, sys.argv[1:])
-print(f"DEBT_DELTA={debt1-debt0}")
-print(f"INTERNAL_DAI_DELTA={int1-int0}")
-print("DRAW_CONSERVATION_OK=" + ("YES" if debt1-debt0 == expected and int1-int0 == expected else "NO"))
-PY
-
-              DRAW_OK="$(python3 - "$DEBT0" "$DEBT1" "$INT0" "$INT1" "$EXPECTED_RAD" <<'PY'
-import sys
-d0,d1,i0,i1,e=map(int,sys.argv[1:])
-print("YES" if d1-d0==e and i1-i0==e else "NO")
-PY
-)"
-              if [[ "$DRAW_OK" != "YES" ]]; then BREACH=1; fi
+              echo "DRAW_CONSERVATION_OK=$DRAW_OK" | tee -a "$OUT"
+              [[ "$DRAW_OK" == "YES" ]] || BREACH=1
 
               if [[ "$MAX_EXIT" != "0" ]]; then
-                TOO_MUCH="$(python3 - "$MAX_EXIT" <<'PY'
-import sys
-print(int(sys.argv[1]) + 1)
-PY
-)"
+                TOO_MUCH="$(python3 -c 'import sys; print(int(sys.argv[1])+1)' "$MAX_EXIT")"
                 expect_revert DAI_EXIT_OVER_BALANCE "$DAI_JOIN" 'exit(address,uint256)' "$ATTACKER" "$TOO_MUCH"
 
-                cast send --rpc-url "$LOCAL_RPC" --private-key "$PK" "$DAI_JOIN" \
-                  'exit(address,uint256)' "$ATTACKER" "$MAX_EXIT" --json >>"$OUT"
+                cast send --rpc-url "$LOCAL_RPC" --private-key "$PK" "$DAI_JOIN" 'exit(address,uint256)' "$ATTACKER" "$MAX_EXIT" --json >>"$OUT"
 
                 INTF="$(cast call --rpc-url "$LOCAL_RPC" "$VAT" 'dai(address)(uint256)' "$ATTACKER" | awk '{print $1}')"
                 EXTF="$(cast call --rpc-url "$LOCAL_RPC" "$DAI" 'balanceOf(address)(uint256)' "$ATTACKER" | awk '{print $1}')"
                 DEBTF="$(cast call --rpc-url "$LOCAL_RPC" "$VAT" 'debt()(uint256)' | awk '{print $1}')"
 
-                FINAL_OK="$(python3 - "$INT0" "$INTF" "$EXT0" "$EXTF" "$DEBT0" "$DEBTF" "$EXPECTED_RAD" "$RAY" <<'PY'
-import sys
-int0,intf,ext0,extf,d0,df,expected,ray=map(int,sys.argv[1:])
-ext_gain=extf-ext0
-int_gain=intf-int0
-value=ext_gain*ray+int_gain
-ok=(value==expected and df-d0==expected and 0 <= int_gain < ray)
-print("YES" if ok else "NO")
-PY
-)"
+                FINAL_OK="$(python3 -c 'import sys; i0,inf,e0,ef,d0,df,e,ray=map(int,sys.argv[1:]); eg=ef-e0; ig=inf-i0; print("YES" if eg*ray+ig==e and df-d0==e and 0<=ig<ray else "NO")' "$INT0" "$INTF" "$EXT0" "$EXTF" "$DEBT0" "$DEBTF" "$EXPECTED_RAD" "$RAY")"
                 echo "FINAL_CONSERVATION_OK=$FINAL_OK" | tee -a "$OUT"
                 echo "FINAL_INTERNAL_DAI=$INTF" | tee -a "$OUT"
                 echo "FINAL_EXTERNAL_DAI=$EXTF" | tee -a "$OUT"
                 echo "FINAL_DEBT=$DEBTF" | tee -a "$OUT"
-                if [[ "$FINAL_OK" != "YES" ]]; then BREACH=1; fi
+                [[ "$FINAL_OK" == "YES" ]] || BREACH=1
               fi
             fi
           fi
@@ -357,9 +250,9 @@ PY
           if (( BREACH == 1 )); then
             echo "CRITICAL_INVARIANT_BREACH=YES" | tee -a "$OUT"
             exit 10
-          else
-            echo "CRITICAL_INVARIANT_BREACH=NO" | tee -a "$OUT"
           fi
+
+          echo "CRITICAL_INVARIANT_BREACH=NO" | tee -a "$OUT"
 
       - name: Upload critical invariant record
         if: always()
