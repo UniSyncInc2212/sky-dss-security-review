@@ -154,10 +154,10 @@ jobs:
             ilk_name="ETH-${suffix}"
             ilk="$(cast format-bytes32-string "$ilk_name")"
 
-            set +e
-            live="$(cast call --rpc-url "$LOCAL_RPC" "$join" 'live()(uint256)' 2>/dev/null | awk '{print $1}')"
-            set -e
-            [[ "$live" == "1" ]] || continue
+            # Fixture authority check: only use an address that the live Vat already recognizes
+            # as a ward. We impersonate it locally only to seed collateral for the invariant test.
+            join_ward="$(cast call --rpc-url "$LOCAL_RPC" "$VAT" 'wards(address)(uint256)' "$join" | awk '{print $1}')"
+            [[ "$join_ward" == "1" ]] || continue
 
             mapfile -t vals < <(cast call --rpc-url "$LOCAL_RPC" "$VAT" 'ilks(bytes32)(uint256,uint256,uint256,uint256,uint256)' "$ilk" | awk '{print $1}')
             (( ${#vals[@]} >= 5 )) || continue
@@ -184,8 +184,21 @@ jobs:
             echo "ECONOMIC_PATH_ILK=$SELECTED_NAME" | tee -a "$OUT"
             echo "ECONOMIC_PATH_JOIN=$SELECTED_JOIN" | tee -a "$OUT"
 
-            DEPOSIT="$(cast to-wei 1000 ether)"
-            cast send --rpc-url "$LOCAL_RPC" --private-key "$PK" --value "$DEPOSIT" "$SELECTED_JOIN" 'join(address)' "$ATTACKER" --json >>"$OUT"
+            # FIXTURE ONLY — not an exploit action:
+            # Seed free collateral by impersonating the already-authorized collateral adapter on
+            # the loopback Anvil fork. This replaces the prior direct join() fixture, which reverted
+            # before the economic invariant could run. The tested actor remains ATTACKER for every
+            # frob / move / exit boundary below.
+            FREE_GEM_SEED="$(cast to-wei 1000 ether)"
+            echo "FIXTURE_SEED_METHOD=ANVIL_IMPERSONATED_AUTHORIZED_ADAPTER_SLIP" | tee -a "$OUT"
+            echo "FIXTURE_AUTHORIZED_ADAPTER=$SELECTED_JOIN" | tee -a "$OUT"
+            echo "FIXTURE_FREE_GEM_SEED=$FREE_GEM_SEED" | tee -a "$OUT"
+
+            cast rpc --rpc-url "$LOCAL_RPC" anvil_impersonateAccount "$SELECTED_JOIN" >/dev/null
+            cast rpc --rpc-url "$LOCAL_RPC" anvil_setBalance "$SELECTED_JOIN" "0x56BC75E2D63100000" >/dev/null
+            cast send --rpc-url "$LOCAL_RPC" --from "$SELECTED_JOIN" --unlocked "$VAT" \
+              'slip(bytes32,address,int256)' "$SELECTED_ILK" "$ATTACKER" "$FREE_GEM_SEED" --json >>"$OUT"
+            cast rpc --rpc-url "$LOCAL_RPC" anvil_stopImpersonatingAccount "$SELECTED_JOIN" >/dev/null
 
             FREE_GEM="$(cast call --rpc-url "$LOCAL_RPC" "$VAT" 'gem(bytes32,address)(uint256)' "$SELECTED_ILK" "$ATTACKER" | awk '{print $1}')"
             mapfile -t vals < <(cast call --rpc-url "$LOCAL_RPC" "$VAT" 'ilks(bytes32)(uint256,uint256,uint256,uint256,uint256)' "$SELECTED_ILK" | awk '{print $1}')
