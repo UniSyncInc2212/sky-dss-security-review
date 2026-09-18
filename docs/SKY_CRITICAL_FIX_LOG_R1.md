@@ -170,3 +170,55 @@ The next workflow run must record one of:
 - `CRITICAL_INVARIANT_BREACH=NO` and the tested lane is eliminated.
 
 No payout claim is to be made from a harness fix, infrastructure error, fixture setup, or expected negative-control revert.
+
+
+---
+
+## 2026-09-18T23:46:08Z — Economic invariant run after fixture repair
+
+**Classification:** `NEGATIVE_CONTROL_PASS / HARNESS_PATH_SETUP`
+
+Workflow run:
+- `35406953310`
+
+Head:
+- `f3caa79fbebe3dc93c4797284a556a9e866af2bc`
+
+Fork block:
+- `26007767`
+
+Observed:
+- attacker Vat ward remained `0`
+- unauthorized `Vat.suck` denied with `Vat/not-authorized`
+- unauthorized `Vat.slip` denied with `Vat/not-authorized`
+- unauthorized `Vat.fold` denied with `Vat/not-authorized`
+- unauthorized `Vat.grab` denied with `Vat/not-authorized`
+- foreign `Vat.move` denied with `Vat/not-allowed`
+- `NEGATIVE_CONTROL_STATE_CHANGED=NO`
+
+Economic fixture:
+- selected `ETH-A`
+- authorized adapter `0x2F0b23f53734252Bda2277357e97e1517d6B042A`
+- fixture seed: `ANVIL_IMPERSONATED_AUTHORIZED_ADAPTER_SLIP`
+- free collateral seed: `1000000000000000000000`
+
+Bounded draw:
+- over-boundary `frob` reverted `Vat/not-safe`
+- `EXPECTED_RAD_GAIN=906668965517241379310344652206419799310657816023872`
+- `DRAW_CONSERVATION_OK=YES`
+
+DAI exit leg:
+- over-balance exit attempt reverted `Vat/not-allowed`
+- root cause: attacker had not granted the normal `DaiJoin` consent path for its own internal DAI balance
+- the valid exit leg therefore did not complete in this run
+
+Artifact:
+- ID `10573145994`
+- ZIP SHA-256 `719bb19152d34d7e3a7a97ba86da3344e1782e52103d3134c54b37c63cbb0ae9`
+
+Evidence boundary:
+- no critical invariant breach was produced
+- access control held
+- over-boundary safety check held
+- draw accounting conserved exactly
+- the incomplete exit leg is a harness/path setup item, not a protocol vulnerability
