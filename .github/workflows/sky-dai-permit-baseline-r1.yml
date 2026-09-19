@@ -21,15 +21,37 @@ jobs:
       - name: Install Foundry
         uses: foundry-rs/foundry-toolchain@v1
 
-      - name: Run DAI permit baseline tests
+      - name: Run isolated DAI permit baseline tests
         shell: bash
         run: |
           set -euo pipefail
           mkdir -p evidence/permit-baseline
-          forge test             --match-contract DaiTest             --match-test 'test(Permit|FailPermit|FailReplay|Domain_Separator|Typehash)'             -vv             2>&1 | tee evidence/permit-baseline/forge-permit-baseline.log
+
+          TMP="$RUNNER_TEMP/dai-permit-baseline"
+          rm -rf "$TMP"
+          mkdir -p "$TMP/src/test" "$TMP/lib"
+
+          cp src/dai.sol "$TMP/src/dai.sol"
+          cp src/test/dai.t.sol "$TMP/src/test/dai.t.sol"
+          cp -R lib/ds-test "$TMP/lib/ds-test"
+
+          cat > "$TMP/foundry.toml" <<'EOF'
+          [profile.default]
+          src = "src"
+          test = "src/test"
+          libs = ["lib"]
+          solc_version = "0.6.12"
+          optimizer = false
+          EOF
+
+          (
+            cd "$TMP"
+            forge test --match-contract DaiTest --match-test 'test(Permit|FailPermit|FailReplay|Domain_Separator|Typehash)' -vv
+          ) 2>&1 | tee evidence/permit-baseline/forge-permit-baseline.log
 
           {
             echo "BASELINE=SOURCE_PERMIT_CONTROLS"
+            echo "HARNESS=ISOLATED_FOUNDRY_ROOT"
             echo "TARGET_SOURCE=src/dai.sol"
             echo "TEST_SOURCE=src/test/dai.t.sol"
             echo "CODEC_SELECTED_LANE=permit-signature"
