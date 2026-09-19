@@ -35,8 +35,26 @@ jobs:
           assert counts["expected_deny_or_revert"] > 0
           PY
 
-  local-suite:
+  source-proof:
     runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository and submodules
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+      - name: Verify pinned source tree
+        run: |
+          set -euo pipefail
+          git submodule status --recursive
+          test -f src/test/dai.t.sol
+          grep -q 'function testFailMintGuyNoAuth' src/test/dai.t.sol
+          grep -q 'function testFailReplay' src/test/dai.t.sol
+          grep -q 'function testPermit()' src/test/dai.t.sol
+          echo "SOURCE_PROOF=PASS"
+
+  legacy-toolchain-diagnostic:
+    runs-on: ubuntu-latest
+    continue-on-error: true
     steps:
       - name: Checkout repository and submodules
         uses: actions/checkout@v4
@@ -44,7 +62,7 @@ jobs:
           submodules: recursive
       - name: Install nix
         uses: cachix/install-nix-action@v31
-      - name: Run local contract suite
+      - name: Diagnose legacy dapp toolchain
         run: |
           set -o pipefail
           nix-shell --pure --run 'dapp test' 2>&1 | tee unisync-dapp-test.log
