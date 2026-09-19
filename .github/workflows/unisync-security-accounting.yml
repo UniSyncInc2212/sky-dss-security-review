@@ -1,0 +1,50 @@
+name: UniSync corrected security accounting
+
+on:
+  push:
+    branches:
+      - unisync/security-result-accounting-r1
+  pull_request:
+    paths:
+      - 'src/**'
+      - 'scripts/classify_ds_tests.py'
+      - 'UNISYNC_SECURITY_RESULT_ACCOUNTING_R1.md'
+      - '.github/workflows/unisync-security-accounting.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  classify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Inventory expected behavior
+        run: |
+          set -euo pipefail
+          python3 scripts/classify_ds_tests.py src/test | tee unisync-test-inventory.json
+          python3 - <<'PY'
+          import json
+          data=json.load(open("unisync-test-inventory.json"))
+          counts=data["counts"]
+          print("TOTAL", counts["total"])
+          print("EXPECTED_DENY_OR_REVERT", counts["expected_deny_or_revert"])
+          print("EXPECTED_ALLOW_OR_INVARIANT", counts["expected_allow_or_invariant"])
+          assert counts["total"] > 0
+          assert counts["expected_deny_or_revert"] > 0
+          PY
+
+  local-suite:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository and submodules
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+      - name: Install nix
+        uses: cachix/install-nix-action@v31
+      - name: Run local contract suite
+        run: |
+          set -o pipefail
+          nix-shell --pure --run 'dapp test' 2>&1 | tee unisync-dapp-test.log
