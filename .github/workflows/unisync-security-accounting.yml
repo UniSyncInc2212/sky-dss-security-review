@@ -95,7 +95,11 @@ jobs:
           remappings = [
             "ds-test/=lib/ds-test/src/",
             "ds-token/=lib/ds-token/src/",
-            "ds-value/=lib/ds-value/src/"
+            "ds-value/=lib/ds-value/src/",
+            "ds-auth/=lib/ds-token/lib/ds-auth/src/",
+            "ds-math/=lib/ds-token/lib/ds-math/src/",
+            "ds-thing/=lib/ds-value/lib/ds-thing/src/",
+            "ds-note/=lib/ds-value/lib/ds-thing/lib/ds-note/src/"
           ]
           EOF
           forge config
