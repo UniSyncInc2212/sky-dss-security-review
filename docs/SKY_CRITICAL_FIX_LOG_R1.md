@@ -222,3 +222,47 @@ Evidence boundary:
 - over-boundary safety check held
 - draw accounting conserved exactly
 - the incomplete exit leg is a harness/path setup item, not a protocol vulnerability
+
+
+---
+
+## 2026-09-19T06:40:45Z — Authorized DaiJoin ALLOW path completed
+
+**Classification:** `NO_BREACH_ON_LANE`
+
+Workflow run:
+- `35427242557`
+
+Head:
+- `80ee8eed0166d2b751c4df915eb0f745ea6ad6fa`
+
+Fork block:
+- `26009830`
+
+Exact path correction:
+- after the bounded `Vat.frob` created attacker-owned internal DAI, the attacker called `Vat.hope(MCD_JOIN_DAI)`,
+- verified `Vat.can(attacker, MCD_JOIN_DAI) == 1`,
+- then exercised `DaiJoin.exit(attacker, MAX_EXIT)` on the local Anvil fork.
+
+Observed:
+- `DAI_JOIN_CONSENT=1`
+- over-balance `DaiJoin.exit` still reverted as expected,
+- legitimate bounded `DaiJoin.exit` completed,
+- `DRAW_CONSERVATION_OK=YES`,
+- `FINAL_CONSERVATION_OK=YES`,
+- `CRITICAL_INVARIANT_BREACH=NO`.
+
+Economic record:
+- `EXPECTED_RAD_GAIN=900086206896551724137930327963549634737717129426904`
+- `FINAL_INTERNAL_DAI=327963549634737717129426904`
+- `FINAL_EXTERNAL_DAI=900086206896551724137930`
+- `FINAL_DEBT=12027249275318639131342911851589919279124466971554184613`
+
+Artifact:
+- ID `10579526924`
+- ZIP SHA-256 `1673ab3aa8f887a641b1ba2d6f67c3ce4f37cd0051068fdf3ea591a1fb29a35a`
+
+Evidence boundary:
+- the previous exit blocker was harness consent setup, not a Sky vulnerability,
+- the normal authorized ALLOW route now runs end-to-end,
+- this lane is eliminated as a critical-bounty candidate unless a separate state transition or invariant violation is demonstrated.
