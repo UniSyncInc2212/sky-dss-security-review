@@ -1,0 +1,27 @@
+{
+  "proof_type": "GOLDEN_SSP_SELECTED_LANE_HANDOFF_R1",
+  "source_repo": "UniSyncInc2212/secureos",
+  "source_branch": "cursor/golden-intent-sky-net-2d36",
+  "source_commit": "92af4245c778d5b3e2d0af31778b41e9c4da1c9e",
+  "source_blob": "c3b1cdf519a1b11d7fb982fe9cafecb869ae1a23",
+  "source_sha256": "9b2b4cb6453956fd399871181e950b7c600937bc09bc7104171d25c538ca46a0",
+  "authority": "GoldenSSP",
+  "codec_version": "ssp-network-v1",
+  "wire": "SSP1",
+  "intent": 722,
+  "closed_lanes": [
+    "consent-boundary",
+    "accounting-conservation"
+  ],
+  "selected_lane": {
+    "id": "permit-signature",
+    "node": 30,
+    "resistance": 3,
+    "target_class": "signature/nonce/replay boundary"
+  },
+  "route_nodes": [1, 30, 99],
+  "path_reference": "ssp-path-078b167c85baa9b7bf7ab4b016fb5717c6e4c890a1f0315efe4c7932343a70d2",
+  "morphic_sha256": "sha256:4a04c3e3b26c3bc4f73bd3dad4fa48e37f762f8dcd482c090d290f296df90e9f",
+  "execution_mode": "LOCAL_FORK_ONLY",
+  "target_contacted_during_selection": false
+}
