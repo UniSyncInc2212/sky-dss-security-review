@@ -86,7 +86,7 @@ jobs:
           cat > foundry.toml <<'EOF'
           [profile.default]
           src = "src"
-          test = "src/test"
+          test = "test"
           libs = ["lib"]
           solc_version = "0.6.12"
           auto_detect_solc = false
@@ -103,11 +103,12 @@ jobs:
           ]
           EOF
           forge config
-      - name: Run isolated DAI suite with maintained harness
+      - name: Run legacy expected-deny compatibility suite
         run: |
           set -o pipefail
           mkdir -p .unisync
-          forge test --match-path 'src/test/dai.t.sol' --match-contract DaiTest -vv 2>&1 | tee .unisync/dai-foundry.log
-          grep -q 'DaiTest' .unisync/dai-foundry.log
-          grep -q 'testFailMintGuyNoAuth' .unisync/dai-foundry.log
-          grep -q 'testFailReplay' .unisync/dai-foundry.log
+          forge test --match-path 'test/unisync_dai_legacy_fail_compat.t.sol' --match-contract DaiLegacyFailCompat -vv 2>&1 | tee .unisync/dai-foundry.log
+          grep -q 'DaiLegacyFailCompat' .unisync/dai-foundry.log
+          grep -q 'testCompatMintGuyNoAuth' .unisync/dai-foundry.log
+          grep -q 'testCompatReplay' .unisync/dai-foundry.log
+          grep -q '10 passed; 0 failed' .unisync/dai-foundry.log
