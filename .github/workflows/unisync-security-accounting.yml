@@ -66,3 +66,38 @@ jobs:
         run: |
           set -o pipefail
           nix-shell --pure --run 'dapp test' 2>&1 | tee unisync-dapp-test.log
+
+
+  maintained-solidity-harness:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository and submodules
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+      - name: Install Foundry
+        uses: foundry-rs/foundry-toolchain@v1
+        with:
+          version: stable
+      - name: Pin Solidity 0.6.12
+        run: |
+          set -euo pipefail
+          forge --version
+          mkdir -p .unisync
+          cat > .unisync/foundry.toml <<'EOF'
+          [profile.default]
+          src = "../src"
+          test = "../src/test"
+          libs = ["../lib"]
+          solc_version = "0.6.12"
+          auto_detect_solc = false
+          optimizer = false
+          EOF
+      - name: Compile pinned source with maintained harness
+        run: |
+          set -euo pipefail
+          FOUNDRY_CONFIG=.unisync/foundry.toml forge build
+      - name: Run DAI suite with maintained harness
+        run: |
+          set -o pipefail
+          FOUNDRY_CONFIG=.unisync/foundry.toml forge test --match-path 'src/test/dai.t.sol' -vv 2>&1 | tee .unisync/dai-foundry.log
