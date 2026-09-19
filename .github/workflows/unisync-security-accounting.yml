@@ -83,21 +83,30 @@ jobs:
         run: |
           set -euo pipefail
           forge --version
-          mkdir -p .unisync
-          cat > .unisync/foundry.toml <<'EOF'
+          cat > foundry.toml <<'EOF'
           [profile.default]
-          src = "../src"
-          test = "../src/test"
-          libs = ["../lib"]
+          src = "src"
+          test = "src/test"
+          libs = ["lib"]
           solc_version = "0.6.12"
           auto_detect_solc = false
           optimizer = false
+          remappings = [
+            "ds-test/=lib/ds-test/src/",
+            "ds-token/=lib/ds-token/src/",
+            "ds-value/=lib/ds-value/src/"
+          ]
           EOF
+          forge config
       - name: Compile pinned source with maintained harness
         run: |
           set -euo pipefail
-          FOUNDRY_CONFIG=.unisync/foundry.toml forge build
+          forge build
       - name: Run DAI suite with maintained harness
         run: |
           set -o pipefail
-          FOUNDRY_CONFIG=.unisync/foundry.toml forge test --match-path 'src/test/dai.t.sol' -vv 2>&1 | tee .unisync/dai-foundry.log
+          mkdir -p .unisync
+          forge test --match-path 'src/test/dai.t.sol' -vv 2>&1 | tee .unisync/dai-foundry.log
+          grep -q 'DaiTest' .unisync/dai-foundry.log
+          grep -q 'testFailMintGuyNoAuth' .unisync/dai-foundry.log
+          grep -q 'testFailReplay' .unisync/dai-foundry.log
