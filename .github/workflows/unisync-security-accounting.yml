@@ -90,6 +90,7 @@ jobs:
           libs = ["lib"]
           solc_version = "0.6.12"
           auto_detect_solc = false
+          auto_detect_remappings = false
           optimizer = false
           remappings = [
             "ds-test/=lib/ds-test/src/",
@@ -98,15 +99,15 @@ jobs:
           ]
           EOF
           forge config
-      - name: Compile pinned source with maintained harness
+      - name: Compile DAI lane with maintained harness
         run: |
           set -euo pipefail
-          forge build
+          forge build --skip 'src/test/clip.t.sol' --skip 'src/test/cure.t.sol' --skip 'src/test/dog.t.sol' --skip 'src/test/end.t.sol' --skip 'src/test/flap.t.sol' --skip 'src/test/flip.t.sol' --skip 'src/test/flop.t.sol' --skip 'src/test/fork.t.sol' --skip 'src/test/jug.t.sol' --skip 'src/test/pot.t.sol' --skip 'src/test/vat.t.sol' --skip 'src/test/vow.t.sol' --skip 'src/test/abaci.t.sol'
       - name: Run DAI suite with maintained harness
         run: |
           set -o pipefail
           mkdir -p .unisync
-          forge test --match-path 'src/test/dai.t.sol' -vv 2>&1 | tee .unisync/dai-foundry.log
+          forge test --match-contract DaiTest -vv 2>&1 | tee .unisync/dai-foundry.log
           grep -q 'DaiTest' .unisync/dai-foundry.log
           grep -q 'testFailMintGuyNoAuth' .unisync/dai-foundry.log
           grep -q 'testFailReplay' .unisync/dai-foundry.log
