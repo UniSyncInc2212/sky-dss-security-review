@@ -241,6 +241,13 @@ jobs:
               [[ "$DRAW_OK" == "YES" ]] || BREACH=1
 
               if [[ "$MAX_EXIT" != "0" ]]; then
+                # Legitimate ALLOW path: the attacker owns this internal DAI balance and grants
+                # DaiJoin permission through Vat.hope before attempting any exit.
+                cast send --rpc-url "$LOCAL_RPC" --private-key "$PK" "$VAT" 'hope(address)' "$DAI_JOIN" --json >>"$OUT"
+                CAN_DAI_JOIN="$(cast call --rpc-url "$LOCAL_RPC" "$VAT" 'can(address,address)(uint256)' "$ATTACKER" "$DAI_JOIN" | awk '{print $1}')"
+                echo "DAI_JOIN_CONSENT=$CAN_DAI_JOIN" | tee -a "$OUT"
+                [[ "$CAN_DAI_JOIN" == "1" ]] || { echo "INFRA_FAILURE=DAI_JOIN_CONSENT_NOT_SET" | tee -a "$OUT"; exit 2; }
+
                 TOO_MUCH="$(python3 -c 'import sys; print(int(sys.argv[1])+1)' "$MAX_EXIT")"
                 expect_revert DAI_EXIT_OVER_BALANCE "$DAI_JOIN" 'exit(address,uint256)' "$ATTACKER" "$TOO_MUCH"
 
