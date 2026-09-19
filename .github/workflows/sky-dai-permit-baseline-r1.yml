@@ -1,0 +1,49 @@
+name: Sky DAI permit baseline R1
+
+on:
+  push:
+    branches:
+      - sky-critical-invariants-r1-20260918
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  dai-permit-baseline:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout source and ds-test
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Install Foundry
+        uses: foundry-rs/foundry-toolchain@v1
+
+      - name: Run DAI permit baseline tests
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p evidence/permit-baseline
+          forge test             --match-contract DaiTest             --match-test 'test(Permit|FailPermit|FailReplay|Domain_Separator|Typehash)'             -vv             2>&1 | tee evidence/permit-baseline/forge-permit-baseline.log
+
+          {
+            echo "BASELINE=SOURCE_PERMIT_CONTROLS"
+            echo "TARGET_SOURCE=src/dai.sol"
+            echo "TEST_SOURCE=src/test/dai.t.sol"
+            echo "CODEC_SELECTED_LANE=permit-signature"
+            echo "RESULT=PASS"
+            echo "NOTE=Source baseline only; deployed local-fork verification remains separate."
+            echo "COMMIT=$GITHUB_SHA"
+          } > evidence/permit-baseline/BASELINE.txt
+
+          sha256sum             src/dai.sol             src/test/dai.t.sol             evidence/permit-baseline/forge-permit-baseline.log             evidence/permit-baseline/BASELINE.txt             > evidence/permit-baseline/SHA256SUMS.txt
+
+      - name: Upload permit baseline evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: sky-dai-permit-baseline-r1
+          path: evidence/permit-baseline/
+          if-no-files-found: warn
