@@ -55,3 +55,5 @@ third-party funds.
 
 
 <!-- Harness trigger marker: 2026-09-19 maintained-foundry-r1 -->
+
+<!-- DAI execution trigger: bff7dd020d655149bea19e1142c00c065ee2a6c2 -->
