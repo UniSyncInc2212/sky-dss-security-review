@@ -52,3 +52,6 @@ authorized local/fork reproduction.
 
 Local/fork/sandbox evidence only. No live exploitation and no movement of
 third-party funds.
+
+
+<!-- Harness trigger marker: 2026-09-19 maintained-foundry-r1 -->
