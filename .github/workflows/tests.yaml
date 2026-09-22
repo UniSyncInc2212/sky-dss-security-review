@@ -5,12 +5,18 @@ jobs:
     runs-on: ubuntu-latest
     steps:
     - name: Checkout repository and submodules
-      uses: actions/checkout@v6
+      uses: actions/checkout@v7
       with:
         submodules: recursive
 
     - name: Install Foundry
       uses: foundry-rs/foundry-toolchain@v1
 
+    - name: Prepare exact production sources
+      run: |
+        mkdir -p poc-src
+        cp src/cure.sol poc-src/cure.sol
+        cp src/end.sol poc-src/end.sol
+
     - name: Run stale Cure PoC
-      run: forge test --match-path poc/cure_end_stale_thaw.t.sol --skip "src/test/" -vvv
+      run: forge test --match-path poc/cure_end_stale_thaw.t.sol -vvv
