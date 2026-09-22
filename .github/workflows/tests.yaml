@@ -1,24 +1,37 @@
-on: [push, pull_request]
+on:
+  push:
+    branches:
+      - research/layerzero-endpoint-fee-r1
+  workflow_dispatch:
 
 jobs:
   tests:
     runs-on: ubuntu-latest
     steps:
-    - name: Checkout repository and submodules
-      uses: actions/checkout@v2
-      with:
-        submodules: recursive
+    - name: Checkout bounty lab branch
+      uses: actions/checkout@v7
 
-    - name: Install nix 2.3.6
-      uses: cachix/install-nix-action@v13
-      with:
-        install_url: https://releases.nixos.org/nix/nix-2.3.6/install
-        nix_path: nixpkgs=channel:nixos-unstable
+    - name: Checkout pinned LayerZero V2
+      run: |
+        git clone --recurse-submodules https://github.com/LayerZero-Labs/LayerZero-v2.git layerzero-v2
+        cd layerzero-v2
+        git checkout 9c741e7f9790639537b1710a203bcdfd73b0b9ac
+        git submodule update --init --recursive
 
-    - name: Use maker cachix
-      uses: cachix/cachix-action@v10
-      with:
-        name: maker
+    - name: Install workspace dependencies
+      run: |
+        cd layerzero-v2
+        corepack enable
+        yarn install --immutable
 
-    - name: Run tests
-      run: nix-shell --pure --run 'dapp test'
+    - name: Install Foundry
+      uses: foundry-rs/foundry-toolchain@v1
+
+    - name: Inject local-only PoC
+      run: |
+        cp poc/layerzero/EndpointV2BalanceRefund.t.sol           layerzero-v2/packages/layerzero-v2/evm/protocol/test/EndpointV2BalanceRefund.t.sol
+
+    - name: Run LayerZero PoC only
+      run: |
+        cd layerzero-v2/packages/layerzero-v2/evm/protocol
+        forge test --match-contract EndpointV2BalanceRefundPoC -vvv
