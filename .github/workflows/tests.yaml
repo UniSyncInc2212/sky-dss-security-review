@@ -5,19 +5,14 @@ jobs:
     runs-on: ubuntu-latest
     steps:
     - name: Checkout repository and submodules
-      uses: actions/checkout@v2
+      uses: actions/checkout@v6
       with:
         submodules: recursive
 
-    - name: Install nix 2.3.6
-      uses: cachix/install-nix-action@v13
+    - name: Install Nix
+      uses: cachix/install-nix-action@v31
       with:
-        install_url: https://releases.nixos.org/nix/nix-2.3.6/install
         nix_path: nixpkgs=channel:nixos-unstable
 
-    # Cachix is only an optimization here. The legacy cachix-action@v10
-    # currently fails on GitHub's Ubuntu 24.04 runner before tests execute
-    # (permission error under /nix/var/nix/profiles/per-user), so do not let
-    # cache bootstrap block the security regression suite.
     - name: Run tests
       run: nix-shell --pure --run 'dapp test'
