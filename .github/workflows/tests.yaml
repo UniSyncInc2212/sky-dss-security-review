@@ -13,4 +13,4 @@ jobs:
       uses: foundry-rs/foundry-toolchain@v1
 
     - name: Run stale Cure PoC
-      run: forge test --match-path src/test/cure_end_stale_thaw.t.sol -vvv
+      run: forge test --match-path poc/cure_end_stale_thaw.t.sol --skip "src/test/" -vvv
