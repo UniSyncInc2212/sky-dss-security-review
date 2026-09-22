@@ -1,0 +1,7 @@
+[profile.default]
+src = "src"
+test = "src/test"
+libs = ["lib"]
+solc_version = "0.6.12"
+optimizer = false
+auto_detect_solc = false
