@@ -1,5 +1,5 @@
 [profile.default]
-src = "src"
+src = "poc-src"
 test = "poc"
 libs = ["lib"]
 solc_version = "0.6.12"
