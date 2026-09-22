@@ -15,10 +15,9 @@ jobs:
         install_url: https://releases.nixos.org/nix/nix-2.3.6/install
         nix_path: nixpkgs=channel:nixos-unstable
 
-    - name: Use maker cachix
-      uses: cachix/cachix-action@v10
-      with:
-        name: maker
-
+    # Cachix is only an optimization here. The legacy cachix-action@v10
+    # currently fails on GitHub's Ubuntu 24.04 runner before tests execute
+    # (permission error under /nix/var/nix/profiles/per-user), so do not let
+    # cache bootstrap block the security regression suite.
     - name: Run tests
       run: nix-shell --pure --run 'dapp test'
