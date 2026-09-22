@@ -4,8 +4,8 @@ pragma solidity ^0.6.12;
 
 import "ds-test/test.sol";
 
-import {Cure} from "../src/cure.sol";
-import {End} from "../src/end.sol";
+import {Cure} from "../poc-src/cure.sol";
+import {End} from "../poc-src/end.sol";
 
 interface Hevm {
     function warp(uint256) external;
